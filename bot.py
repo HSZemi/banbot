@@ -23,10 +23,10 @@ async def on_ready():
 
 @client.event
 async def on_message(message):
-    if '@everyone' in message.content:
-        print(f'Banning {message.author}')
-        await message.author.ban(reason='Tried to use @everyone', delete_message_seconds=120)
-
+    for bad_word in ('@everyone', '@here'):
+        if bad_word in message.content:
+            print(f'Banning {message.author}')
+            await message.author.ban(reason=f'Tried to use {bad_word}', delete_message_seconds=120)
 
 def main():
     client.run(TOKEN)
