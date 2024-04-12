@@ -27,6 +27,8 @@ async def on_message(message):
         if bad_word in message.content:
             print(f'Banning {message.author}')
             await message.author.ban(reason=f'Tried to use {bad_word}', delete_message_seconds=120)
+            return
+
 
 def main():
     client.run(TOKEN)
