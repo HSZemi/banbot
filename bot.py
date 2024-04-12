@@ -25,7 +25,7 @@ async def on_ready():
 async def on_message(message):
     for bad_word in ('@everyone', '@here'):
         if bad_word in message.content:
-            print(f'Banning {message.author}')
+            print(f'Banning {message.author} for {message.content=} in {message.guild=}')
             await message.author.ban(reason=f'Tried to use {bad_word}', delete_message_seconds=120)
             return
 
