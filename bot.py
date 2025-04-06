@@ -37,7 +37,7 @@ async def send_log_message(author: User | Member, content: str, guild: Guild):
     for channel in guild.text_channels:
         if channel.name in ('actual-log', 'alerta'):
             escaped_message = content.replace('```', '` ` `')
-            await channel.send(f'Banning <@{author.id}> for message:\n```\n{escaped_message}\n```')
+            await channel.send(f'Banning `{author.name}` (<@{author.id}>) for message:\n```\n{escaped_message}\n```')
 
 
 
