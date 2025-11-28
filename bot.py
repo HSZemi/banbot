@@ -10,6 +10,9 @@ from dotenv import load_dotenv
 load_dotenv()
 TOKEN = os.getenv('DISCORD_TOKEN')
 
+SUS_ITEMS_THRESHOLD = 3
+SUS_POSTS_THRESHOLD = 2
+LINK_THRESHOLD = 5
 CHANNEL_THRESHOLD = 5
 SECONDS_THRESHOLD = 30
 
@@ -24,6 +27,16 @@ class ChannelPost:
     channel_id: int
     author_id: int
     timestamp: float
+    sus: bool
+    links: int
+
+
+def is_suspicious(message: discord.Message) -> bool:
+    return len(message.attachments) + len(message.embeds) >= SUS_ITEMS_THRESHOLD
+
+
+def count_links(message: discord.Message) -> int:
+    return message.content.count('https://') + message.content.count('http://')
 
 
 class RecentPosts:
@@ -38,9 +51,16 @@ class RecentPosts:
             now = message.created_at.timestamp()
             limit = now - SECONDS_THRESHOLD
             self.recent_posts = [p for p in self.recent_posts if p.timestamp > limit]
-            self.recent_posts.append(ChannelPost(channel_id=channel_id, author_id=author_id, timestamp=now))
-            channel_ids = {p.channel_id for p in self.recent_posts if p.author_id == author_id}
-            return len(channel_ids) >= CHANNEL_THRESHOLD
+            sus = is_suspicious(message)
+            links = count_links(message)
+            self.recent_posts.append(ChannelPost(
+                channel_id=channel_id, author_id=author_id, timestamp=now, sus=sus, links=links
+            ))
+            recent_channels_count = len({p.channel_id for p in self.recent_posts if p.author_id == author_id})
+            too_many_channels = recent_channels_count >= CHANNEL_THRESHOLD
+            too_sus = len([p for p in self.recent_posts if p.sus and p.author_id == author_id]) >= SUS_POSTS_THRESHOLD
+            too_many_links = sum([p.links for p in self.recent_posts if p.author_id == author_id]) >= LINK_THRESHOLD
+            return too_many_channels or too_sus or too_many_links
 
 
 RECENT_POSTS = RecentPosts()
@@ -63,7 +83,7 @@ async def on_message(message):
             await send_naughty_word_log_message(message.author, message.content, message.guild)
             return
     if await RECENT_POSTS.should_ban(message):
-        reason = f'Posted in {CHANNEL_THRESHOLD} channels within {SECONDS_THRESHOLD} seconds'
+        reason = f'Recent posts have been deemed banworthy by our robot overlords'
         await message.author.ban(reason=reason, delete_message_seconds=120)
         await send_rate_limit_log_message(message.author, message.guild)
 
