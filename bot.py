@@ -39,6 +39,11 @@ def count_links(message: discord.Message) -> int:
     return message.content.count('https://') + message.content.count('http://')
 
 
+def is_exempt(author: User | Member) -> bool:
+    roles = [r.name for r in author.roles]
+    return 'Administrator' in roles or 'Mod' in roles
+
+
 class RecentPosts:
     def __init__(self):
         self.recent_posts = []
@@ -52,7 +57,7 @@ class RecentPosts:
             limit = now - SECONDS_THRESHOLD
             self.recent_posts = [p for p in self.recent_posts if p.timestamp > limit]
             sus = is_suspicious(message)
-            if sus:
+            if sus and not is_exempt(message.author):
                 description = f'{len(message.attachments)} attachments and {len(message.embeds)} embeds'
                 await send_sus_delete_log_message(message.author, message.guild, description)
                 await message.delete()
