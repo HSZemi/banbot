@@ -52,6 +52,10 @@ class RecentPosts:
             limit = now - SECONDS_THRESHOLD
             self.recent_posts = [p for p in self.recent_posts if p.timestamp > limit]
             sus = is_suspicious(message)
+            if sus:
+                description = f'{len(message.attachments)} attachments and {len(message.embeds)} embeds'
+                await send_sus_delete_log_message(message.author, message.guild, description)
+                await message.delete()
             links = count_links(message)
             self.recent_posts.append(ChannelPost(
                 channel_id=channel_id, author_id=author_id, timestamp=now, sus=sus, links=links
@@ -95,7 +99,12 @@ async def send_naughty_word_log_message(author: User | Member, content: str, gui
 
 
 async def send_rate_limit_log_message(author: User | Member, guild: Guild):
-    message = f'Banning `{author.name}` (<@{author.id}>) for posting in {CHANNEL_THRESHOLD} channels within {SECONDS_THRESHOLD} seconds'
+    message = f'Banning `{author.name}` (<@{author.id}>) because recent posts have been deemed banworthy by our robot overlords'
+    await send_log_message(guild, message)
+
+
+async def send_sus_delete_log_message(author: User | Member, guild: Guild, description: str):
+    message = f'Deleting sus message by `{author.name}` (<@{author.id}>):\n' + description
     await send_log_message(guild, message)
 
 
