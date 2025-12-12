@@ -10,7 +10,7 @@ from dotenv import load_dotenv
 load_dotenv()
 TOKEN = os.getenv('DISCORD_TOKEN')
 
-SUS_ITEMS_THRESHOLD = 3
+SUS_ITEMS_THRESHOLD = 4
 SUS_POSTS_THRESHOLD = 2
 LINK_THRESHOLD = 4
 CHANNEL_THRESHOLD = 5
