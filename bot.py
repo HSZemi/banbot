@@ -58,6 +58,7 @@ class RecentPosts:
             self.recent_posts = [p for p in self.recent_posts if p.timestamp > limit]
             sus = is_suspicious(message)
             if sus and not is_exempt(message.author):
+                await message.reply('That message looked sus so I deleted it. Do not do it again or I will ban you.')
                 description = f'{len(message.attachments)} attachments and {len(message.embeds)} embeds'
                 await send_sus_delete_log_message(message.author, message.guild, description)
                 await message.delete()
