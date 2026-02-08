@@ -16,6 +16,18 @@ LINK_THRESHOLD = 4
 CHANNEL_THRESHOLD = 5
 SECONDS_THRESHOLD = 30
 
+EXEMPT_CHANNEL_NAMES = [
+    't90-elitechatroom',
+    'game-submissions',
+    'stream-highlights',
+    'emote-suggestions',
+    'food-chat',
+    't90-memes',
+    'tech-support',
+    'projects-self-promo',
+    'bug-reports',
+]
+
 intents = discord.Intents.default()
 intents.message_content = True
 
@@ -39,8 +51,10 @@ def count_links(message: discord.Message) -> int:
     return message.content.count('https://') + message.content.count('http://')
 
 
-def is_exempt(author: User | Member) -> bool:
-    roles = [r.name for r in author.roles]
+def is_exempt(message: discord.Message) -> bool:
+    if message.channel.name in EXEMPT_CHANNEL_NAMES:
+        return True
+    roles = [r.name for r in message.author.roles]
     return 'Administrator' in roles or 'Mod' in roles
 
 
@@ -57,7 +71,7 @@ class RecentPosts:
             limit = now - SECONDS_THRESHOLD
             self.recent_posts = [p for p in self.recent_posts if p.timestamp > limit]
             sus = is_suspicious(message)
-            if sus and not is_exempt(message.author):
+            if sus and not is_exempt(message):
                 await message.reply('That message looked sus so I deleted it. Do not do it again or I will ban you.')
                 description = f'{len(message.attachments)} attachments and {len(message.embeds)} embeds'
                 await send_sus_delete_log_message(message.author, message.guild, description)
