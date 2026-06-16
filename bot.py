@@ -25,18 +25,6 @@ MEDIA_BAN_THRESHOLD_INCL = 3
 
 BAD_WORDS = ('@everyone', '@here')
 
-EXEMPT_CHANNEL_NAMES = [
-    't90-elitechatroom',
-    'game-submissions',
-    'stream-highlights',
-    'emote-suggestions',
-    'food-chat',
-    't90-memes',
-    'tech-support',
-    'projects-self-promo',
-    'bug-reports',
-]
-
 intents = discord.Intents.default()
 intents.message_content = True
 
@@ -63,8 +51,6 @@ def count_links(message: discord.Message) -> int:
 
 
 def is_exempt(message: discord.Message) -> bool:
-    if message.channel.name in EXEMPT_CHANNEL_NAMES:
-        return True
     roles = [r.name for r in message.author.roles]
     return 'Administrator' in roles or 'Mod' in roles
 
