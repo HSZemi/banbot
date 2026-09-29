@@ -8,6 +8,7 @@ from io import BytesIO
 import discord
 import requests
 from dotenv import load_dotenv
+from PIL import Image
 
 load_dotenv()
 TOKEN = os.getenv('DISCORD_TOKEN')
@@ -21,8 +22,20 @@ BAD_WORD_BAN_THRESHOLD_INCL = 2
 MSG_WARM_THRESHOLD_INCL = 3
 MSG_BAN_THRESHOLD_INCL = 4
 
-MEDIA_WARN_THRESHOLD_INCL = 2
-MEDIA_BAN_THRESHOLD_INCL = 3
+MEDIA_WARN_THRESHOLD_INCL = 3
+MEDIA_BAN_THRESHOLD_INCL = 4
+MEDIA_SUS_PENALTY = 2
+
+SUSPICIOUS_MEDIA_VALUES = [
+    (15, 17, 17),
+    (14, 19, 26),
+    (4, 9, 10),
+    (12, 21, 29),
+    (17, 18, 22),
+    (23, 32, 51),
+    (19, 25, 40),
+    (67, 62, 123),
+]
 
 BAD_WORDS = ('@everyone', '@here')
 
@@ -48,6 +61,15 @@ class BannedAuthor:
     timestamp: float
 
 
+@dataclass
+class FileWithName:
+    filename: str
+    content: bytes
+
+    def as_discord_file(self) -> discord.File:
+        return discord.File(BytesIO(self.content), self.filename)
+
+
 class ModAction(Enum):
     NOTHING = auto()
     WARN = auto()
@@ -69,13 +91,32 @@ def to_media_tuple(message: discord.Message) -> tuple[int, int, int] | None:
     return media_tuple if any(media_tuple) else None
 
 
+def calculate_media_penalty(files: list[FileWithName]) -> int:
+    if len(files) != 4:
+        return 0
+    if all(is_suspicious(f.content) for f in files):
+        return MEDIA_SUS_PENALTY
+    return 0
+
+
+def is_suspicious(content: bytes) -> bool:
+    with Image.open(BytesIO(content)) as f:
+        r, g, b = f.resize((1, 1)).getpixel((0, 0))
+        for v in SUSPICIOUS_MEDIA_VALUES:
+            vr, vg, vb = v
+            if abs(vr - r) < 10 and abs(vg - g) < 10 and abs(vb - b) < 10:
+                return True
+        return False
+
+
 class RecentPosts:
     def __init__(self):
         self.recent_posts = []
         self.banned_author_ids = []
         self.lock = asyncio.Lock()
 
-    async def get_mod_action(self, message: discord.Message) -> tuple[ModAction, str, list[ChannelPost]]:
+    async def get_mod_action(self, message: discord.Message) -> tuple[
+        ModAction, str, list[ChannelPost], list[FileWithName]]:
         async with self.lock:
             channel_id = message.channel.id
             author_id = message.author.id
@@ -85,7 +126,8 @@ class RecentPosts:
             self.banned_author_ids = [b for b in self.banned_author_ids if b.timestamp > purge_limit]
             self.recent_posts = [p for p in self.recent_posts if p.timestamp > purge_limit]
             if is_exempt(message):
-                return ModAction.NOTHING, "", []
+                return ModAction.NOTHING, "", [], []
+            files = attachments_to_files(message.attachments)
             media_tuple = to_media_tuple(message)
             contains_bad_word = any(w in message.content for w in BAD_WORDS)
             self.recent_posts.append(ChannelPost(
@@ -102,28 +144,29 @@ class RecentPosts:
             same_media_tuple_count = len(
                 [p for p in posts_by_author if p.media_tuple == media_tuple]) if media_tuple else 0
             recent_channels_count = len({p.channel_id for p in posts_by_author})
+            media_penalty = calculate_media_penalty(files)
 
             if author_id in {a.author_id for a in self.banned_author_ids}:
-                return ModAction.DELETE, f"Deleting message by banned author {message.author.name}", all_posts_by_author
+                return ModAction.DELETE, f"Deleting message by banned author {message.author.name}", all_posts_by_author, files
 
-            if same_media_tuple_count >= MEDIA_BAN_THRESHOLD_INCL:
+            if same_media_tuple_count >= MEDIA_BAN_THRESHOLD_INCL - media_penalty:
                 self.banned_author_ids.append(BannedAuthor(author_id=author_id, timestamp=now))
-                return ModAction.BAN, f"Same media types in {same_media_tuple_count}/{MEDIA_BAN_THRESHOLD_INCL} messages within {SECONDS_THRESHOLD} seconds", all_posts_by_author
+                return ModAction.BAN, f"Same media types in {same_media_tuple_count}/{MEDIA_BAN_THRESHOLD_INCL} - {media_penalty} messages within {SECONDS_THRESHOLD} seconds", all_posts_by_author, files
             if recent_channels_count >= MSG_BAN_THRESHOLD_INCL:
                 self.banned_author_ids.append(BannedAuthor(author_id=author_id, timestamp=now))
-                return ModAction.BAN, f"Posted in {recent_channels_count}/{MSG_BAN_THRESHOLD_INCL} channels within {SECONDS_THRESHOLD} seconds", all_posts_by_author
+                return ModAction.BAN, f"Posted in {recent_channels_count}/{MSG_BAN_THRESHOLD_INCL} channels within {SECONDS_THRESHOLD} seconds", all_posts_by_author, files
             if bad_words_count >= BAD_WORD_BAN_THRESHOLD_INCL:
                 self.banned_author_ids.append(BannedAuthor(author_id=author_id, timestamp=now))
-                return ModAction.BAN, f"Posted {bad_words_count}/{BAD_WORD_BAN_THRESHOLD_INCL} bad words within {SECONDS_THRESHOLD} seconds", all_posts_by_author
+                return ModAction.BAN, f"Posted {bad_words_count}/{BAD_WORD_BAN_THRESHOLD_INCL} bad words within {SECONDS_THRESHOLD} seconds", all_posts_by_author, files
 
-            if same_media_tuple_count >= MEDIA_WARN_THRESHOLD_INCL:
-                return ModAction.WARN, "Slow down with your posting or you will get banned", all_posts_by_author
+            if same_media_tuple_count >= MEDIA_WARN_THRESHOLD_INCL - media_penalty:
+                return ModAction.WARN, "Slow down with your posting or you will get banned", all_posts_by_author, files
             if recent_channels_count >= MSG_WARM_THRESHOLD_INCL:
-                return ModAction.WARN, "Slow down with your posting or you will get banned", all_posts_by_author
+                return ModAction.WARN, "Slow down with your posting or you will get banned", all_posts_by_author, files
             if bad_words_count >= BAD_WORD_WARN_THRESHOLD_INCL:
-                return ModAction.WARN, "Do not try to tag this many people you silly goose. It does not work, and you will get banned if you try again.", all_posts_by_author
+                return ModAction.WARN, "Do not try to tag this many people you silly goose. It does not work, and you will get banned if you try again.", all_posts_by_author, files
 
-            return ModAction.NOTHING, "", []
+            return ModAction.NOTHING, "", [], []
 
 
 RECENT_POSTS = RecentPosts()
@@ -140,10 +183,10 @@ async def on_ready():
 async def on_message(message: discord.Message):
     if message.author.bot:
         return
-    mod_action, reason, all_posts_by_author = await RECENT_POSTS.get_mod_action(message)
+    mod_action, reason, all_posts_by_author, files = await RECENT_POSTS.get_mod_action(message)
     if mod_action == ModAction.NOTHING:
         return
-    await send_log_message(message, mod_action, reason, all_posts_by_author)
+    await send_log_message(message, mod_action, reason, all_posts_by_author, [f.as_discord_file() for f in files])
     if mod_action == ModAction.DELETE:
         await message.delete(delay=1)  # delay so we don't have to deal with error handling
     if mod_action == ModAction.WARN:
@@ -154,24 +197,23 @@ async def on_message(message: discord.Message):
             await post.message.delete(delay=1)  # delay so we don't have to deal with error handling
 
 
-def attachments_to_files(attachments: list[discord.Attachment]) -> list[discord.File]:
+def attachments_to_files(attachments: list[discord.Attachment]) -> list[FileWithName]:
     files = []
     for attachment in attachments:
         response = requests.get(attachment.url)
         if response.status_code != 200:
             continue
-        content = BytesIO(response.content)
-        files.append(discord.File(content, attachment.filename))
+        files.append(FileWithName(filename=attachment.filename, content=response.content))
     return files
 
 
-async def send_log_message(message: discord.Message, mod_action: ModAction, reason: str, all_posts_by_author: list[ChannelPost]):
+async def send_log_message(message: discord.Message, mod_action: ModAction, reason: str,
+                           all_posts_by_author: list[ChannelPost], files: list[discord.File]):
     escaped_message = message.content.replace('```', '` ` `')
     verb = 'Banning' if mod_action == ModAction.BAN else 'Warning'
     urls = [p.message.jump_url for p in all_posts_by_author]
     recent_messages = "" if mod_action == ModAction.BAN else "Recent messages:\n" + "\n".join(urls)
     log_msg = f'{verb} `{message.author.name}` (<@{message.author.id}>):\n{reason}\n{recent_messages}\n```\n{escaped_message}\n```'
-    files = attachments_to_files(message.attachments)
     print(f'[{message.created_at}] {message.guild.name=} {log_msg}')
     for channel in message.guild.text_channels:
         if channel.name in ('actual-log', 'alerta'):
